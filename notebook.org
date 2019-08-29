@@ -290,7 +290,7 @@ oc>GABAb_S[0].i
 	0.029477722 
 ** I noticed in the oc model that changing dt changed the activity of the network, in fact, changing dt from 0.1 -> 0.025 caused conductance to behave very similarly to netpyne model
 
-* 8.26.19
+* 8.26.19 Something fishy with GABAB conductance and current
 ** createSimulateAnalyze runs sim.create(netParams, simConfig), sim.simulate(), sim.analyze()
 ** need to find out more about sim.net.connectCells()
 ** need to find out more about neuroml2 format
@@ -344,7 +344,7 @@ PY i =>   0.091968492     0.3278113855100482
 
 TC g =>   0.00035532494   0.003635775561015554
 TC i =>   0.025714165     0.11247954343543566
-* 8.27.19
+* 8.27.19 Working on single GABAB receptor
 ** Unsure if comparing current and conductance across all GABAB synapses for that cell in netpyne
 the record statement in the hoc model is recording from a single synapse GABAb, while the netpyne version is recording 'i_GABAB' and 'g_GABAB', this may be the current and conductance through all GABAb synapses at that cell.
 ** Getting values from connlist in python, seeing which GABAb synapses are connected to postcell 11
@@ -360,9 +360,11 @@ the record statement in the hoc model is recording from a single synapse GABAb, 
 >>> len(x)
 11
 ** Started working on isolating single and several GABA b synapse in oc and netpyne to see how they act
-* 8.28.19
+* 8.28.19 Large discrepancy revealed with GABAb synapses using h.List("GABAb_S")
 ** Spoke with Dr. Lytton, reverified GABAb weights, however new issue discovered when checking network with List() command.
-netpyne
+** There are only 200 GABAb synaptic point processes in netpyne version vs original.
+*** code
+**** netpyne implementation
 In [13]: AMPAcon = h.List("AMPA_S")
 
 In [14]: len(AMPAcon)      <===
@@ -378,6 +380,7 @@ In [17]: GABABcon = h.List("GABAb_S")
 In [18]: len(GABABcon)     <===
 Out[18]: 200               <===
 
+**** original hoc implementation
 oc>objref AMPA
 oc>AMPA = new List("AMPA_S")
 oc>AMPA.count()            
@@ -391,6 +394,45 @@ oc>GABAB = new List("GABAb_S")
 oc>GABAB.count()
 	3300                     <===
 oc>
+
+** All GABAb synapses seem to have been handled as single synapse on postsynaptic neuron with multiple presynaptic inputs, no 1:1 ratio of netcons to GABAb which is needed for model to run
+** Per Dr. Lytton, will have to set up GABAB connections outside of netpyne and worry about integrating it later.
+** Met with Dr. Qiang Wang (new researcher), showed him the linux system in lab, he will set up Python, Neuron, Netpyne, GitHub on his own system, currently using Windows machine, he might set up Ubuntu 18.04 or purchase Macbook
+
+* 8.29.19 Creating GABAb synapses outside of netpyne
+** Working on establishing GABAB connections in network created by netpyne
+*** discussion
+cells are found in 
+sim.net.cells[<<cell_ID>>]
+additionally, can access cell IDs through
+sim.net.pops['<<ID>>'].cellGids
+This indicates following populations of cells:
+PYcells = sim.net.cells[  0: 99]
+INcells = sim.net.cells[100:299]
+TCcells = sim.net.cells[300:399]
+REcells = sim.net.cells[400:499]
+*** oc code that needs to be implemented
+for i=0,nthalamiccells-1 {
+   for j=i-diamRETC,i+diamRETC {
+	jbound = j
+	if (jbound < 0) jbound = abs(j) - 1
+	if (jbound > nthalamiccells-1) jbound = 2 * nthalamiccells - jbound - 1
+
+	// presynaptic is RE[i], postsynaptic is TC[j]
+	// ***Note: GABAb synapses are implemented as a list of individual synapses (in contrast to other synapse types), and so are created here
+	gababsyn = new GABAb_S()
+ 	TC[jbound].soma gababsyn.loc(0.5)
+	TC[jbound].gababpost.append(gababsyn)
+	RE[i].soma TC[jbound].REgabablist.append(new NetCon(&v(0.5), gababsyn, 0, axondelay, 1))	
+   }
+}
+** asked about line:
+TC[jbound].soma gababsyn.loc(0.5)
+was told operates as loc command
+
+
+
+
 
 
 
