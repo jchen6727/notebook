@@ -1,0 +1,403 @@
+* 8.5.19 Lots of errors due to using old version of NetPyNE (0.6.6)
+Used SSH to access Neurosim
+Downloaded implementation of Destexhe model in .hoc as well as NetPyNE
+.hoc model demo runs without issue through NEURON GUI by using the command
+nrngui then loading the demo file 
+NetPyNE implementation ran into issues, first;
+
+Traceback (most recent call last):
+ File "init.py", line 1, in <module>
+   import netParams  # import parameters file
+ File "/home/jchen/CompNeuro/myKnoxRepo/netParams.py", line 142, in <module>
+   cellRule = netParams.importCellParams(label='TCrule', conds={'cellType': 'TC', 'cellModel': 'HH_TC'}, fileName='TC.tem', cellName='sTC')
+ File "/home/jchen/.local/lib/python2.7/site-packages/netpyne/specs.py", line 330, in importCellParams
+   secs, secLists, synMechs = utils.importCell(fileName, cellName, cellArgs)
+TypeError: 'NoneType' object is not iterable 
+
+This error occurs whenever fileName references a .tem file, looking in the directory, all the .tem files with the exception of RE.tem have .py versions as well, when changing the netParams.importCellParams() call to use the .py version, no errors appear.
+I am also told by Salvador that I should change the .tem files to end with .hoc and change the netParams.importCellParams function call to have fileName be referring to the newly named .hoc file
+However, this causes an additional error to appear:
+
+ Traceback (most recent call last):
+  File "init.py", line 1, in <module>
+    import netParams  # import parameters file
+  File "/home/jchen/CompNeuro/myKnoxRepo/netParams.py", line 142, in <module>
+    cellRule = netParams.importCellParams(label='TCrule', conds={'cellType': 'TC', 'cellModel': 'HH_TC'}, fileName='TC.hoc', cellName='sTC')
+  File "/home/jchen/.local/lib/python2.7/site-packages/netpyne/specs.py", line 331, in importCellParams
+    secs, secLists, synMechs = utils.importCell(fileName, cellName, cellArgs)
+  File "/home/jchen/.local/lib/python2.7/site-packages/netpyne/utils.py", line 128, in importCell
+    _delete_module(moduleName)
+UnboundLocalError: local variable 'moduleName' referenced before assignment
+
+This is because moduleName is only defined in utils.py if the fileName ends in .py or .hoc but is otherwise undefined
+
+Found that my version of netpyne was 0.6.6 and this was fixed by updates, upgraded to netpyne 0.9.6 most recent version.
+
+* 8.6.19 Updating everything but Lost lreadline
+On laptop, after upgrading to netpyne 0.9.6 upgraded NEURON to 7.7.1 using their package manager, and upgraded ubuntu to LTS 18.0.4 which also had python 3.6.8, however, new upgrade lost libreadline shared object, nrnivmodl, nrngui, now fail to run properly without libreadline. Performed full reinstallation of OS Ubuntu 18.04 to laptop.
+However, after full reinstallation, still having issues with -lreadline --
+When running nrnivmodl:
+
+/usr/bin/ld: cannot find -lreadline
+collect2: error: ld returned 1 exit status
+/usr/local/nrn/x86_64/bin/nrnmech_makefile:94: recipe for target 'libnrnmech.la' failed
+make: *** [libnrnmech.la] Error 1
+
+* 8.7.19 NEURON installation script shows where lreadline is. Things are running.
+Reinstallation of NEURON this time not using package manager but by downloading the repo and running their scripts. The ./configure script put out this message
+
+checking checking compilation with -lreadline... failed
+Link with the readline library failed.
+Will attempt to compile and link with the older version of readline
+that comes with this installation. If this is not what you want, i.e.
+you want to use the latest gnu version of readline and it
+is not installed in a standard
+place (e.g., /usr/lib or /usr/local/lib), you must specify the proper location
+of libreadline using
+
+  configure --with-readline=/where/you/put/it
+
+The file libreadline.a (or libreadline.so or whatever) should be located in
+/where/you/put/it/lib.
+
+If you don't have readline installed, you can get it from the GNU web site,
+www.gnu.org.
+
+Other things to get prior to installation of NEURON include yacc and lex with 
+sudo apt-get install flex bison
+Remember to rerun from ./configure.sh properly or make will still fail to compile.
+On the neurosim machine, found that a working NEURON-PYTHON environment was already established and could be accessed through 
+
+conda activate py36
+
+Ran both demos successfully without errors.
+The code being executed by rundemo.hoc is found in Fspikewave.oc . The specific plots in the demo are 
+
+i=watchneuron
+    sprint(gtxt,"TC[%d].soma.v(0.5)",i)
+    addgraph(gtxt,-120,40)
+    sprint(gtxt,"RE[%d].soma.v(0.5)",i)
+    addgraph(gtxt,-120,40)
+    sprint(gtxt,"PY[%d].soma.v(0.5)",i)
+    addgraph(gtxt,-120,40)
+    sprint(gtxt,"IN[%d].soma.v(0.5)",i)
+    addgraph(gtxt,-120,40)
+addfieldgraph(“field”,-5,5)
+
+or addgraph("TC[11].soma.v(0.5)", -120, 40) will add a graph.
+
+* 8.8.19 Using older version of pandas, getting output waveforms
+On personal laptop, ran into issue when running netpyne implementation
+
+nrniv -python init.py
+
+The issue is with module pandas, the latest version of pandas no longer has attribute lib which is used in netpyne. Am installing an older version of pandas
+
+pip install pandas=0.23.0
+
+Saved output waveforms to a .png 
+
+The hoc implementation has the ability to model mutations and AEDs through nav_type and drug
+
+if (nav_type == 1) {
+//T857M
+ for i=0, ncorticalcells * 2 - 1 {
+   IN[i].soma.svhalf_inak2005mut = 61.6
+   IN[i].soma.sk_inak2005mut = 3.7
+   IN[i].soma.staubase_inak2005mut = (36200 / 106700) * 140400
+   taummax = 0.15
+   tauhmax = 23.12
+   tausmax = (36200 / 106700) * 140400
+ }
+}
+
+if (drug == 1) {
+//carbamazepine
+ print "carbamazepine"
+ print dose
+ gnablock_inak2005 = 1 - (1 - 0.763) * dose
+ hshift_inak2005 = -7 * dose
+ sshift_inak2005 = -4.63 * dose
+ htaubase_inak2005 = tauhmax + tauhmax * (31.526 -1) * dose
+ staubase_inak2005 = tausmax - tausmax * (1 - 0.5538) * dose
+
+
+ for i=0, ncorticalcells * 2 - 1 {
+   IN[i].soma.gnablock_inak2005mut = 1 - (1 - 0.763) * dose
+   IN[i].soma.hshift_inak2005mut = -7 * dose
+   IN[i].soma.sshift_inak2005mut = -4.63 * dose
+   IN[i].soma.htaubase_inak2005mut = tauhmax + tauhmax * (31.526 -1) * dose
+   IN[i].soma.staubase_inak2005mut = tausmax - tausmax * (1 - 0.5538) * dose
+ }
+}
+
+Plan to move these mutations to the NetPyNE implementation.
+However, first, there is an issue with the plot of the TC cells, they do not display any action potentials.
+
+The line that displays the waveforms is:
+
+simConfig.analysis['plotTraces'] = {'include': [('PY',0),('IN',0),('TC',10),('RE',10)], 'timeRange': [0,2000], 'oneFigPer': 'trace', 'overlay': False, 'saveFig': './images/plotTraces.png'}
+
+‘TC’ and ‘RE’ are called with argument 10 instead of 0. Discovered that instead substituting (‘TC’,0) and (‘RE’,0) shows TC cell action potentials. Verified that 0 refers to a specific PY cell index 0.
+
+* 8.9.19 Differences in mechanisms between oc version and netpyne version
+With both models executing without issue, my next goal is to implement the mutations and drug effects implemented in the hoc model into netpyne. The first challenge is that the hoc model and netpyne model do not use the same channel descriptions. whilst the hoc model uses a wild-type sodium channel inak2005.mod as well as an inak2005mut.mod to describe mutations, the netpyne port uses a Hodgin-Huxley channel described in HH2.mod. The parameters of these two models are not the same. I will look through the netpyne port RE.tem, TC.tem, mPYr.py, sIN.tem and sPY.tem neuron descriptions to see about implementing the inak2005 channel. 
+
+Based on this I have found running
+
+diff -b -y --width=200
+
+to evaluate the files is a good solution and found the following differences between the hoc model and the netpyne port.
+
+RE.tem
+In hoc model, RE.tem does not use hh2, uses inak2005 and itrecustom
+TC.tem
+In hoc model, TC.tem does not use hh2, uses inak2005
+sIN.tem
+In hoc model, sIN.tem does not use hh2, uses inak2005 and inak2005mut
+sPY.tem
+In hoc model, sPY.tem does not use hh2, uses inak2005
+
+I found that the .c and .o objects in the original hoc model were not part of the model and removed them.
+* 8.19.19 Getting NetCons out of oc file
+** In order for the netpyne port to behave similarly to the original, we are duplicating elements of the original hoc model into the netpyne port. One of these tasks include duplicating the connections (NetCons) between the original and the port. In the original, they are described in fSpikeWave.oc and in the port netParams.py. By using the following lines of code, output information on NetCons from fSPikeWave.oc into a csv file netcon_data.csv for parsing
+*** code
+//----------------------------------------------------------------------------
+//  netcon file
+//----------------------------------------------------------------------------
+
+objref ncl
+ncl = new List("NetCon")
+objref ncfile
+netcons = ncl.count()
+ncfile = new File()
+ncfile.wopen("netcon_data.csv")
+for i = 0, netcons-1{
+ if (ncl.o(i).weight[0] > 0) {
+    ncfile.printf("%s,", ncl.o(i).precell()  )
+    ncfile.printf("%s,", ncl.o(i).postcell() )
+    ncfile.printf("%s,", ncl.o(i).syn()      )
+    ncfile.printf("%d,", ncl.o(i).delay      )
+    ncfile.printf("%d\n", ncl.o(i).weight[0]  )
+ }
+}
+ncfile.close()
+** For some reason, weights are either 0 or 1 instead of some floating point between 0 and 1, which is unexpected.
+* 8.20.19 Parsing NetCons, storing into json file
+** Parsing done in python, the csv file was parsed with information stored into a python dictionary dumped into a json file with the following code
+*** code
+import re
+import json
+
+netcons = {}
+for line in open('netcon_data.csv'):
+   precell, postcell, syn, delay, weight = re.split(r',', line)
+   precellStr,  precellId  = re.split(r'[\[\]]', precell )[0:2]
+   postcellStr, postcellId = re.split(r'[\[\]]', postcell)[0:2]
+   synStr = re.split(r'\[', syn)[0]
+   conStr = precellStr+'->'+postcellStr
+   if synStr in netcons:
+       if conStr in netcons[synStr]:
+           netcons[synStr][conStr].append([int(precellId), int(postcellId)])
+       else:
+           netcons[synStr][conStr] = []
+           netcons[synStr][conStr].append([int(precellId), int(postcellId)])
+   else:
+       netcons[synStr] = {}
+       netcons[synStr][conStr] = []
+       netcons[synStr][conStr].append([int(precellId), int(postcellId)])
+
+with open('netcons.json', 'w') as fp:
+   json.dump(netcons, fp)
+**  Chose json as versus pkl can get better visualization of the data structure by opening json with web browser. The pre and post cell IDs for each connection are stored as a list of 2 elements (pre, post), can be accessed after loading json for instance by [‘AMPA_S’][‘sTC->sRE’]. Implemented loading netcons. Because weight was either 0 or 1, filtered out weight with zero and kept weight with one. Will look into this.
+* 8.21.19 Importing json file to netpyne port, peculiarity with GABAB (gmax vs. weight)
+** Imported json file into netpyne port and set explicit connections in netParams.connParams['PRE->POST'], 'connList'
+*** code excerpt from myKnoxRepo/netParams.py
+netParams.connParams['RE->RE'] = {
+    'preConds': {'popLabel': 'RE'}, 
+    'postConds': {'popLabel': 'RE'},
+    'weight': RERE*0.2/(N_RE*RE_RE_GABAA_Prob+1),            # (Destexhe, 1998)
+    #'weight': 0.2,            # (Destexhe, 1998)
+    'delay': netParams.axondelay, 
+    'loc': 0.5,
+    'sec': 'soma',
+    #'threshold': 0,
+    'synMech': 'GABAA_S',
+    #'synsPerConn': 1,
+    #'probability': '1.0 if dist_x <= narrowdiam*xspacing else 0.0'}   
+    #'probability': RE_RE_GABAA_Prob}
+    'connList': netcons['GABAa_S']['sRE->sRE']}
+    #'connList': smallWorldConn(N_RE,N_RE,pThl,RE_RE_GABAA_Prob,selfConn)} 
+** Did not change 'weight' setting, since the exported values in csv were not set (were either 1 or 0). While reviewing weights, found that the original oc model had a peculiarity when setting GABAB weights in the procedure assign_synapses(), namely that the gmax value was set rather than the weight
+*** code excerpt from Dravet/Fspikewave.oc
+    for j=0, TC[i].gababpost.count()-1 {
+	TC[i].gababpost.object(j).gmax = $3 / nRETC
+	//TC[i].REgabablist.object(j).weight = $3 / nRETC
+    }
+** in the NetPyNE port, both the gmax and weight is set, commented out the weight and kept gmax set (does weight default to 1?). This is most likely not the correct solution.
+* 8.22.19 GABAA weights, peculiarity with IN->IN GABAB weight
+** Found issue with weights being either 0 or 1, the procedure to assign weights was included in the initialization code block proc init () that only ran after user input. Put in code in segment to output weights to a debug file. 
+** Boundary cases were explained, that cells at the minimum and maximum of the simulation parameters (i.e. TC[0], TC[99]) would synapse differently than other neurons, was speculated that this was the reason for the earlier termination of spindle activity in netpyne port versus original oc model
+** gabaapercent was altered to 0 and then 10 to evaluate model, with gabaapercent at 0, netpyne model shows long spindle of activity that lasts for approx 1500 ms and then quiescence, while the original model showed two shorter spindles lasting approx 350 ms then a break for approx 233 ms, then another spindle approx 233 ms. Set gabaapercent to 10 TODO look at GABAB total conductance and IM in PY neurons
+** found additional discrepancy regarding weight IN->IN GABAA weight in original model set to 0, TODO compare weights.
+** When setting GABAB gmax (conductance) to 0 from initial value found that output voltage traces do not change. Evaluate this.
+* 8.23.19 Looking deeper at GABAB effects
+** Set GABAB gmax to zero in original model, this shows single long spindle lasting about 700 ms versus 3 shorter spindles, in the netpyne model, we also get one long spindle, though it lasts significantly longer at approx 1500 ms
+*** debug output of weights
+GABA A RERE: 0.018182
+GABA A RETC: 0.000182
+GABA B RETC (gmax): 0.000000
+GABA B RETC (weight): 1.000000
+AMPA   TCRE: 0.018182
+AMPA   PYRE: 0.057143
+AMPA   PYTC: 0.000476
+AMPA   PYPY: 0.054545
+GABA A INPY: 0.002727
+GABA B INPY (gmax): 0.000000
+GABA B INPY (weight): 1.000000
+AMPA   TCPY: 0.057143
+AMPA   PYIN: 0.018182
+** Output current and conductance of GABAB channels in netpyne port, shows that conductance g rapidly approaches and stays at gmax through simulation with no effect on output waveform.
+** was suggested that the GABAB channels were not inserted, evaluated this using has_loc() and get_segment(). Found documentation best by googling "neuron yale has_loc"
+*** code
+ncl = h.List("NetCon")
+asy = [x for x in ncl if 'GABAb' in str(x.syn())]
+In [5]: asy[0].syn().has_loc()
+Out[5]: 1.0
+In [6]: asy[0].syn().get_segment()
+Out[6]: <netpyne.cell.compartCell.CompartCell object at 0x7f0457c224a8>.soma(0.5)
+* 8.25.19 Using oc terminal
+*** code
+oc>GABAb_S[3000].get_segment().sec.name()
+	sPY[85].soma[0] 
+oc>sPY[85].gababpost.object(0).g
+	0.0018457503 
+oc>sPY[85].gababpost.object(0).i
+	0.095011927 
+oc>GABAb_S[3000].g
+	0.0018457503 
+oc>GABAb_S[3000].i
+	0.095011927 
+oc>GABAb_S[0].get_segment().sec.name()
+	sTC[4].soma[0] 
+oc>sTC[4].gababpost.object(0).g
+	0.0029656521 
+oc>sTC[4].gababpost.object(0).i
+	0.029477722 
+oc>GABAb_S[0].g
+	0.0029656521 
+oc>GABAb_S[0].i
+	0.029477722 
+** I noticed in the oc model that changing dt changed the activity of the network, in fact, changing dt from 0.1 -> 0.025 caused conductance to behave very similarly to netpyne model
+
+* 8.26.19
+** createSimulateAnalyze runs sim.create(netParams, simConfig), sim.simulate(), sim.analyze()
+** need to find out more about sim.net.connectCells()
+** need to find out more about neuroml2 format
+*** code
+objref PYg
+PYg = new Vector()
+PYg.record(&PY[11].gababpost.object(0).g)
+objref PYi
+PYi = new Vector()
+PYi.record(&PY[11].gababpost.object(0).i)
+...
+oc>PYg.max()
+	0.00096263933 <=== gmax is 0.0027272727
+oc>PYi.max()
+	0.091968492 
+oc>TCg.max()
+	0.00035532494 <=== gmax is 0.0036363636
+oc>TCi.max()
+	0.025714165 
+** looked at save.py to see how netpyne saves data, then used to get data on GABAB g and i
+*** code
+In [1]: traces = sim.cfg.recordTraces
+
+In [2]: traces.keys()
+Out[2]: dict_keys(['V_soma', 'i_GABAB1', 'g_GABAB1', 'i_GABAB2', 'g_GABAB2'])
+
+In [3]: sim.allSimData['i_GABAB1'].keys()
+Out[3]: dict_keys(['cell_11'])
+
+In [4]: sim.allSimData['i_GABAB2'].keys()
+Out[4]: dict_keys(['cell_311'])
+
+In [11]: max(sim.allSimData['g_GABAB2']['cell_311'])   <=== TC cells
+Out[11]: 0.003635775561015554
+
+In [12]: max(sim.allSimData['i_GABAB2']['cell_311'])
+Out[12]: 0.11247954343543566
+
+In [13]: max(sim.allSimData['g_GABAB1']['cell_11'])    <=== PY cells
+Out[13]: 0.0027271393472713284
+
+In [14]: max(sim.allSimData['i_GABAB1']['cell_11'])
+Out[14]: 0.3278113855100482
+
+In [15]: len(sim.allSimData['i_GABAB1']['cell_11'])    
+Out[15]: 20000                                         <=== # of simulation points
+** comparing maximal g and i between models, we see that the netpyne model has much greater conductance and current but has no noticable impact on voltage waveforms vs. the hoc model.
+          hoc             netpyne
+PY g =>   0.00096263933   0.0027271393472713284
+PY i =>   0.091968492     0.3278113855100482
+
+TC g =>   0.00035532494   0.003635775561015554
+TC i =>   0.025714165     0.11247954343543566
+* 8.27.19
+** Unsure if comparing current and conductance across all GABAB synapses for that cell in netpyne
+the record statement in the hoc model is recording from a single synapse GABAb, while the netpyne version is recording 'i_GABAB' and 'g_GABAB', this may be the current and conductance through all GABAb synapses at that cell.
+** Getting values from connlist in python, seeing which GABAb synapses are connected to postcell 11
+*** code
+>>> import json
+>>> with open('netcons.json', 'r') as fp:
+>>> connlist = netcons['GABAb_S']['sRE->sTC']
+>>> len(connlist)
+1100
+>>> postcell = [x for x in connlist if x[1] == 11]
+>>> postCell
+[[6, 11], [7, 11], [8, 11], [9, 11], [10, 11], [11, 11], [12, 11], [13, 11], [14, 11], [15, 11], [16, 11]]
+>>> len(x)
+11
+** Started working on isolating single and several GABA b synapse in oc and netpyne to see how they act
+* 8.28.19
+** Spoke with Dr. Lytton, reverified GABAb weights, however new issue discovered when checking network with List() command.
+netpyne
+In [13]: AMPAcon = h.List("AMPA_S")
+
+In [14]: len(AMPAcon)      <===
+Out[14]: 500               <===
+
+In [15]: GABAAcon = h.List("GABAa_S")
+
+In [16]: len(GABAAcon)
+Out[16]: 500
+
+In [17]: GABABcon = h.List("GABAb_S")
+
+In [18]: len(GABABcon)     <===
+Out[18]: 200               <===
+
+oc>objref AMPA
+oc>AMPA = new List("AMPA_S")
+oc>AMPA.count()            
+	600                      <===
+oc>objref GABAA
+oc>GABAA = new List("GABAa_S")
+oc>GABAA.count()
+	500 
+oc>objref GABAB
+oc>GABAB = new List("GABAb_S")
+oc>GABAB.count()
+	3300                     <===
+oc>
+
+
+
+
+
+
+
+
+
+
