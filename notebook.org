@@ -407,10 +407,10 @@ sim.net.cells[<<cell_ID>>]
 additionally, can access cell IDs through
 sim.net.pops['<<ID>>'].cellGids
 This indicates following populations of cells:
-PYcells = sim.net.cells[  0: 99]
-INcells = sim.net.cells[100:299]
-TCcells = sim.net.cells[300:399]
-REcells = sim.net.cells[400:499]
+PYcells = sim.net.cells[  0:100]
+INcells = sim.net.cells[100:300]
+TCcells = sim.net.cells[300:400]
+REcells = sim.net.cells[400:500]
 *** oc code that needs to be implemented
 for i=0,nthalamiccells-1 {
    for j=i-diamRETC,i+diamRETC {
@@ -426,9 +426,95 @@ for i=0,nthalamiccells-1 {
 	RE[i].soma TC[jbound].REgabablist.append(new NetCon(&v(0.5), gababsyn, 0, axondelay, 1))	
    }
 }
-** asked about line:
-TC[jbound].soma gababsyn.loc(0.5)
+** asked about line: TC[jbound].soma gababsyn.loc(0.5)
 was told operates as loc command
+gababsyn.loc(0.5, sec = TC[jbound].soma)
+RE[i].soma TC[jbound].REgabablist.append(new NetCon(&v(0.5), gababsyn, 0, axondelay, 1))
+* 8.30.19 
+*** code for the new netconnections
+(pops, cells, conns, rxd, stims, simData) = sim.create(netParams.netParams, cfg.simConfig, output=True)
+
+PYcells = sim.net.cells[  0:100]
+INcells = sim.net.cells[100:300]
+TCcells = sim.net.cells[300:400]
+REcells = sim.net.cells[400:500]
+
+PYsomas = [ x.secs['soma']['hObj'] for x in PYcells ]
+INsomas = [ x.secs['soma']['hObj'] for x in INcells ]
+TCsomas = [ x.secs['soma']['hObj'] for x in TCcells ]
+REsomas = [ x.secs['soma']['hObj'] for x in REcells ]
+
+#RETCgababsyns = []
+for i in range(100):                               <=== for i=0,nthalamiccells-1 {        <=== for i=0,99
+  for j in range(i-5, i+5+1):                      <===   for j=i-diamRETC,i+diamRETC {   <=== for j=i-5,i+5 so UL should be i+5+1 for range
+    jbound = j
+    if (jbound < 0):
+        jbound = abs(j) - 1
+    if (jbound > 99): 
+        jbound = 2 * 100 - jbound - 1
+    ## presynaptic is RE[i], postsynaptic is TC[j]
+    ## ***Note: GABAb synapses are implemented as a list of individual synapses (in contrast to other synapse types), and so are created here
+    gababsyn = h.GABAb_S()                                                 #gababsyn = new GABAb_S()
+    gababsyn.loc(0.5, sec = TCsomas[jbound])                               #TC[jbound].soma gababsyn.loc(0.5)
+                                                                           #TC[jbound].gababpost.append(gababsyn)
+    h.NetCon( REsomas[i](0.5)._ref_v, gababsyn, 0, 2, 1, sec = REsomas[i]) #RE[i].soma TC[jbound].REgabablist.append(new NetCon(&v(0.5), gababsyn, 0, axondelay, 1))
+    	
+#INPYgababsyns = []
+for i in range(100):
+  for j in range(i-5, i+5+1):
+    jbound = j
+    if (jbound < 0):
+        jbound = abs(j) - 1
+    if (jbound > 99):
+        jbound = 2 * 100 - jbound - 1
+    ## presynaptic is IN[i], postsynaptic is PY[j]
+    ## ***Note: GABAb synapses are implemented as a list of individual synapses (in contrast to other synapse types), and so are created here
+    gababsyn = h.GABAb_S()                                                         #gababsyn = new GABAb_S()
+    gababsyn.loc(0.5, sec = PYsomas[jbound])                                       #PY[jbound].soma gababsyn.loc(0.5)
+                                                                                   #PY[jbound].gababpost.append(gababsyn) 
+    h.NetCon( INsomas[i](0.5)._ref_v, gababsyn, 0, 2, 1, sec = INsomas[i])         #IN[i].soma PY[jbound].INgabablist.append(new NetCon(&v(0.5), gababsyn, 0, axondelay, 1))
+
+    #add for new set of IN cells
+    gababsyn = h.GABAb_S()
+    gababsyn.loc(0.5, sec = PYsomas[jbound])                                       #PY[jbound].soma gababsyn.loc(0.5)
+	                                                                               #PY[jbound].gababpost.append(gababsyn) 
+    h.NetCon( INsomas[i+100](0.5)._ref_v, gababsyn, 0, 2, 1, sec = INsomas[i+100]) #IN[i+100].soma PY[jbound].INgabablist.append(new NetCon(&v(0.5), gababsyn, 0, axondelay, 1))
+** However, issue with number of GABAb_S() being created and saved in this code, as 
+In [1]: len(h.List("GABAb_S"))
+Out[1]: 1
+In [2]: len(h.List("NetCon"))
+Out[2]: 15088
+** seems need to save gababsyn and netcon somewhere, so created lists and "saved" them there (appended them), this resolved the "disappearing" synapses and netcons.
+* 9.2.19
+** Verified GABAB parameters
+	K1_GABAb_S	= 0.09		//	(/ms mM) forward binding to receptor
+	K2_GABAb_S	= 0.0012	//	(/ms)	backward (unbinding)of receptor
+	K3_GABAb_S	= 0.18 		//	(/ms)	rate of G-protein production
+	K4_GABAb_S	= 0.034		//	(/ms)	rate of G-protein decay  -  larger number = slower decay?
+	KD_GABAb_S	= 100		//	dissociation constant of K+ channel
+	n_GABAb_S	= 4		//	nb of binding sites of G-protein on K+
+	Erev_GABAb_S	= -95		//	(mV)	reversal potential (E_K)
+	Cmax_GABAb_S = 0.5		// short pulses
+	Cdur_GABAb_S = 0.3
+
+In [8]: RETCgababsyns[0].K1 ====> Out[8]: 0.09
+In [9]: RETCgababsyns[0].K2 ====> Out[9]: 0.0012
+In [10]: RETCgababsyns[0].K3 ===> Out[10]: 0.18
+In [11]: RETCgababsyns[0].K4 ===> Out[11]: 0.034
+In [12]: RETCgababsyns[0].KD ===> Out[12]: 100.0
+In [13]: RETCgababsyns[0].n ====> Out[13]: 4.0
+In [14]: RETCgababsyns[0].Erev => Out[14]: -95.0
+In [15]: RETCgababsyns[0].Cmax => Out[15]: 0.5
+In [16]: RETCgababsyns[0].Cdur => Out[16]: 0.3
+** Assigned gmax for GABAB, turns out gabab needs to be assigned to a point with loc or else gmax cannot be assigned:
+In [17]: gabab = h.GABAb_S()
+
+In [18]: gabab.gmax
+NEURON: point process not located in a section
+...
+** After recreating the GABAB synapses outside of netpyne, network still does not behave as anticipated. 
+* 9.3.19
+
 
 
 
