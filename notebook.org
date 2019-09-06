@@ -430,7 +430,7 @@ for i=0,nthalamiccells-1 {
 was told operates as loc command
 gababsyn.loc(0.5, sec = TC[jbound].soma)
 RE[i].soma TC[jbound].REgabablist.append(new NetCon(&v(0.5), gababsyn, 0, axondelay, 1))
-* 8.30.19 
+* 8.30.19 Porting oc code to neuron+python
 *** code for the new netconnections
 (pops, cells, conns, rxd, stims, simData) = sim.create(netParams.netParams, cfg.simConfig, output=True)
 
@@ -485,8 +485,8 @@ Out[1]: 1
 In [2]: len(h.List("NetCon"))
 Out[2]: 15088
 ** seems need to save gababsyn and netcon somewhere, so created lists and "saved" them there (appended them), this resolved the "disappearing" synapses and netcons.
-* 9.2.19
-** Verified GABAB parameters
+* 9.2.19 Verifying GABAB parameters
+** Verified GABAB parameters, seems like default values are same. 
 	K1_GABAb_S	= 0.09		//	(/ms mM) forward binding to receptor
 	K2_GABAb_S	= 0.0012	//	(/ms)	backward (unbinding)of receptor
 	K3_GABAb_S	= 0.18 		//	(/ms)	rate of G-protein production
@@ -513,15 +513,103 @@ In [18]: gabab.gmax
 NEURON: point process not located in a section
 ...
 ** After recreating the GABAB synapses outside of netpyne, network still does not behave as anticipated. 
-* 9.3.19
+* 9.3.19 PLotting GABAB current and conductance using neuron+python
+** Will look at AMPA synapses next, there are 100 synapses missing from netpyne model.
+** Plotting GABAB current and conductance, using Vector class:
+*** In original hoc
+  objref PYg
+  PYg = new Vector()
+  PYg.record(&PY[11].gababpost.object(0).g)
 
+*** so now in python:
 
+In [19]: PYg.record(INPYgababsyns[200].g)
+bad stack access: expecting (double *); really (double)
+NEURON: interpreter stack type error
+ near line 0
+ ^
+        Vector[7].record(0)
+oc_restore_code tobj_count=2 should be 1
+---------------------------------------------------------------------------
+RuntimeError                              Traceback (most recent call last)
+<ipython-input-19-8a255be11a32> in <module>()
+----> 1 PYg.record(INPYgababsyns[200].g)
 
+RuntimeError: hoc error
 
+In [20]: PYg.record(INPYgababsyns[200]._ref_g)
+Out[20]: Vector[7] 
 
+Details: NEURON pointers in python are handled using the _ref_ syntax. e.g., soma(0.5)._ref_v
+** made synapses into double array to clean references
+** TC neurons depolarize first prior to 250 ms, run simulation to 250 ms and then evaluate current.
+** Or, add Iclamp stims to TC to force earlier activity?
+* 9.4.19 Finding the missing AMPA receptors
+** had to debug code, turns out behavior of lists and append not as I expected:
+*** code
+In [26]: array = [ [ ] ] * 5
 
+In [27]: array
+Out[27]: [[], [], [], [], []]
 
+In [28]: array[0].append(0)
 
+In [29]: array[1].append(1)
+
+In [30]: array[2].append(2)
+
+In [31]: array
+Out[31]: [[0, 1, 2], [0, 1, 2], [0, 1, 2], [0, 1, 2], [0, 1, 2]]
+
+Rather than 
+[ [0] , [1] , [2] , [ ] , [ ] ]
+Or append() appends to end of all lists in array
+
+Solution:
+In [37]: array = [ [ ] for y in range(5) ]
+
+In [38]: array
+Out[38]: [[], [], [], [], []]
+
+In [39]: array[0].append(1)
+
+In [40]: array
+Out[40]: [[1], [], [], [], []]
+
+In [41]: array[2].append(1)
+
+In [42]: array
+Out[42]: [[1], [], [1], [], []]
+
+In [43]: array[2].append(3)
+
+In [44]: array
+Out[44]: [[1], [], [1, 3], [], []]
+
+** see 8.28.19, there are 600 AMPA synaptic point processes defined in original oc code and only 500 AMPA synaptic point processes defined in netpyne implementation
+** suspect culprit to be related to pyramidal neurons, where two AMPA point processes should be defined  -- ampapostPY and ampapostTC, that is where PY->PY and TC->PY connections are concerned
+** Dr. Knox and Dr. Lytton pointed out that the ampapostPY and ampapostTC can be consolidated into single AMPA synapse as long as NetCons are weighted differently.
+** TODO consolidate AMPA synapses to single point
+* 9.5.19 What depolarizes first, Netpyne first AP occurs earlier, why?
+** In original model, TC raster catches action potential at 236-237 ms
+***
+oc>TCVtrace[99].x[2362]
+	-13.701763 
+oc>TCVtrace[99].x[2363] <===
+	11.407642             <===
+oc>TCVtrace[99].x[2364]
+	-39.683937 
+
+** All TC should depolarize at the same time given that there is no randomization
+** However in netpyne model, depolarization happens more than 10 ms earlier, prior to 225 ms 
+** Use h.psection to evaluate:
+h.psection(sec=h.sTC[0].soma[0]) in original model
+h.psection(sec=TCsomas[0])       in netpyne model
+** h.psection shows more limited data from the oc model, Dr. Lytton wants to expand the definition of h.psection.
+** Also notable comments from Dr. Knox--
+"it looks like the inhibitory cells are lazy in the new version..."
+"yes, in the old one, removing that randomization makes everything weirdly synchronized" -- so randomization of TC cells is important but will add later.
+* 9.6.19
 
 
 
