@@ -605,15 +605,75 @@ oc>TCVtrace[99].x[2364]
 ** Use h.psection to evaluate:
 h.psection(sec=h.sTC[0].soma[0]) in original model
 h.psection(sec=TCsomas[0])       in netpyne model
-** h.psection shows more limited data from the oc model, Dr. Lytton wants to expand the definition of h.psection.
+** h.psection shows more limited data from the oc model, TODO Dr. Lytton wants to expand the definition of h.psection.
+** can be found in neuron repo at /neuron/nrn/share/lib/python/neuron/psection.py
 ** Also notable comments from Dr. Knox--
 "it looks like the inhibitory cells are lazy in the new version..."
 "yes, in the old one, removing that randomization makes everything weirdly synchronized" -- so randomization of TC cells is important but will add later.
-* 9.6.19
+* 9.9.19 Looking through h.psection
+** Lazy IN cells, parameters are the same, look through netcons.
+** 2200 netcons from sPY->sIN, 200 netcons from sIN->sIN
+** check weight of the netcons --
+** Issue with weight,
+In [10]: ncl = h.List("NetCon")
+In [15]: postcellIN = [x for x in ncl if x.postcell().tags['cellType'] == 'IN']
+In [17]: PYIN = [x for x in postcellIN if x.precell().tags['cellType'] == 'PY']
+In [30]: PYIN[0].weight[0]
+Out[30]: 0.009523809523809525 <===
 
+GABA A RERE: 0.018182
+GABA A RETC: 0.000182
+GABA B RETC (gmax): 0.000000
+GABA B RETC (weight): 1.000000
+AMPA   TCRE: 0.018182
+AMPA   PYRE: 0.057143
+AMPA   PYTC: 0.000476
+AMPA   PYPY: 0.054545
+GABA A INPY: 0.002727
+GABA B INPY (gmax): 0.000000
+GABA B INPY (weight): 1.000000
+AMPA   TCPY: 0.057143
+AMPA   PYIN: 0.018182 <===
 
+** Adjusting PYIN weight did not solve the issue of inactive IN neurons, but replacing all weights did.
+** PYIN = .2 / 11 versus .2 / 21
+** Look into earlier TC depolarization
+** Look into lazy IN cells
+** Look into h.psection
+* 9.12.19 Looking at netcons
+** CVode.netconlist() to verify netcons
+** Number of netcons for synapse type --
+AMPA
+TC->RE = 1100
+PY->PY = 1100
+PY->IN = 2200
+PY->RE = 2100
+PY->TC = 2100
+TC->PY = 2100
+10700 netcons vs. 10594 netcons - 106 missing netcons
+GABAA
+RE->RE = 1100
+RE->TC = 1100
+IN->PY = 2200
+IN->IN = 200
+4600 netcons vs. 4494 netcons   - 106 missing netcons
+GABAB
+RE->TC = 1100
+IN->PY = 2200
+3300 netcons vs. 3300 netcons
+18600 netcons in total
 
+18388 netcons in netpyne
+15088 netcons of AMPA and GABAA type
+** code
+cvode = h.CVode()
+cvode.netconlist("","","")
 
+In [9]: len(cvode.netconlist("","","AMPA"))
+Out[9]: 10594
+
+In [11]: len(cvode.netconlist("","","GABAa"))
+Out[11]: 4494
 
 
 
