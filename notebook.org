@@ -675,5 +675,36 @@ Out[9]: 10594
 In [11]: len(cvode.netconlist("","","GABAa"))
 Out[11]: 4494
 
+* 9.16.19 Replicating divergence in oc code
+** oc code has elements of divergence
+for (i=0;i<=ncorticalcells-1;i+=divergence) {
+   for j=i/divergence-diamPYRE,i/divergence+diamPYRE {
+	jbound = j
+	if (jbound < 0) jbound = abs(j) - 1
+	if (jbound > nthalamiccells-1) jbound = 2 * nthalamiccells - jbound - 1
+
+	// presynaptic is PY[i], postsynaptic is RE[j] 
+	PY[i+divergence/2].soma RE[jbound].PYlist.append(new NetCon(&v(0.5), RE[jbound].ampapost, 0, axondelay, 1))	
+   }
+}
+** how oc code handles indexing with non-integer values
+
+oc>for (i = 0.5; i < 5.5; i+=2) { print i}
+0.5 
+2.5 
+4.5 
+oc>PY[2.5] <-- floors when accessing array
+	sPY[2] 
+oc>for i = 0.5, 5.5 { print i}
+0.5 
+1.5 
+2.5 
+3.5 
+4.5 
+5.5 
+
+
+
+
 
 
