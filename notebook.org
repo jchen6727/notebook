@@ -675,7 +675,7 @@ Out[9]: 10594
 In [11]: len(cvode.netconlist("","","GABAa"))
 Out[11]: 4494
 
-* 9.16.19 Replicating divergence in oc code
+* 9.16.19 Replicating divergence in oc code, chasing missing netcons
 ** oc code has elements of divergence
 for (i=0;i<=ncorticalcells-1;i+=divergence) {
    for j=i/divergence-diamPYRE,i/divergence+diamPYRE {
@@ -688,7 +688,6 @@ for (i=0;i<=ncorticalcells-1;i+=divergence) {
    }
 }
 ** how oc code handles indexing with non-integer values
-
 oc>for (i = 0.5; i < 5.5; i+=2) { print i}
 0.5 
 2.5 
@@ -702,6 +701,138 @@ oc>for i = 0.5, 5.5 { print i}
 3.5 
 4.5 
 5.5 
+** implemented oc code to NetPyNE
+** using cvode on original oc
+In [1]: cvode = h.CVode()
+
+In [18]: len(cvode.netconlist("",h.PY[0],"AMPA"))
+Out[18]: 32
+
+In [19]: len(cvode.netconlist("",h.PY[0],"GABAa"))
+Out[19]: 22
+
+In [20]: len(cvode.netconlist("",h.PY[0],"GABAb"))
+Out[20]: 22
+
+In [21]: len(cvode.netconlist("",h.PY[0],""))
+Out[21]: 76
+
+In [22]: len(cvode.netconlist("","PY",""))
+Out[22]: 7600
+
+In [23]: len(cvode.netconlist("","PY","GABAb"))
+Out[23]: 2200
+
+In [24]: ncl = cvode.netconlist("",h.PY[0],"AMPA")
+
+In [25]: ncl[0]
+Out[25]: NetCon[4904]
+
+** However, cvode and netpyne do not work well together
+** Spoke to Salvador and Bill, netconlist looks like dead end will go to h.List()
+
+** implemented netcon dictionary in netpyne code to get better look at netcons, found that missing netcons in AMPA_S PYPY connections and GABAA RERE connections
+In [2]: len(netcons['AMPA_S']['PYPY']) <--- missing 106 netcons
+Out[2]: 994    
+
+In [4]: len(netcons['AMPA_S']['PYIN'])
+Out[4]: 2200
+
+In [5]: len(netcons['AMPA_S']['TCRE'])
+Out[5]: 1100
+
+In [6]: len(netcons['AMPA_S']['PYTC'])
+Out[6]: 2100
+
+In [7]: len(netcons['AMPA_S']['PYRE'])
+Out[7]: 2100
+
+In [8]: len(netcons['AMPA_S']['TCPY'])
+Out[8]: 2100
+
+In [16]: len(netcons['GABAa_S']['ININ'])
+Out[16]: 200
+
+In [17]: len(netcons['GABAa_S']['INPY'])
+Out[17]: 2200
+
+In [18]: len(netcons['GABAa_S']['RETC'])
+Out[18]: 1100
+
+In [19]: len(netcons['GABAa_S']['RERE']) <--- missing 106 netcons
+Out[19]: 994
+----------------------------------------------------------------------------------
+In [3]: sPY = netParams.netcons['AMPA_S']['sPYsPY'] <--- connlist used for netcons
+
+In [4]: PY = ncd['AMPA_S']['PYPY']                  <--- netpyne created netcons
+
+In [5]: PY[0:10]
+Out[5]: 
+[[0, 4],
+ [0, 3],
+ [0, 2],
+ [0, 1],
+ [0, 1],
+ [0, 2],
+ [0, 3],
+ [0, 4],
+ [0, 5],
+ [1, 3]]
+
+In [6]: sPY[0:10]
+Out[6]: 
+[[0, 4],
+ [0, 3],
+ [0, 2],
+ [0, 1],
+ [0, 0],
+ [0, 0],
+ [0, 1],
+ [0, 2],
+ [0, 3],
+ [0, 4]]
+
+In [11]: sPYselfconn = [x for x in sPY if x[0] == x[1]]
+
+In [12]: len(sPYselfconn)
+Out[12]: 106
+
+In [13]: PYselfconn = [x for x in PY if x[0] == x[1]]
+
+In [14]: len(PYselfconn)
+Out[14]: 0
+
+In [15]: sPYselfconn[0:10]
+Out[15]: 
+[[0, 0],
+ [0, 0],
+ [1, 1],
+ [1, 1],
+ [2, 2],
+ [2, 2],
+ [3, 3],
+ [4, 4],
+ [5, 5],
+ [6, 6]]
+** what is causing the discrepancy in netcons <--->
+netParams.connParams['PY->PY_AMPA'] = {
+    'preConds': {'popLabel': 'PY'}, 
+    'postConds': {'popLabel': 'PY'},
+    'weight': 0.054545,        # PYPY*0.6/(N_PY*PY_PY_AMPA_Prob+1),            # (Destexhe, 1998)
+    'sec': 'soma',
+    'delay': netParams.axondelay, 
+    'loc': 0.5,
+    'synMech': 'AMPA_S',
+    'connList': [ [0,0] for x in range(1100) ] + [ [0,1] ] }
+                             ^                       ^
+              none of these netcons are created  this netcon is created
+
+In [3]: PY = ncd['AMPA_S']['PYPY']
+
+In [4]: PY
+Out[4]: [[0, 1]] <--- only netcon that is created
+
+
 
 
 
