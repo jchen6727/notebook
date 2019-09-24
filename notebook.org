@@ -729,7 +729,7 @@ In [25]: ncl[0]
 Out[25]: NetCon[4904]
 
 ** However, cvode and netpyne do not work well together
-** Spoke to Salvador and Bill, netconlist looks like dead end will go to h.List()
+** Spoke to Salva and Bill, netconlist looks like dead end will go to h.List()
 
 ** implemented netcon dictionary in netpyne code to get better look at netcons, found that missing netcons in AMPA_S PYPY connections and GABAA RERE connections
 In [2]: len(netcons['AMPA_S']['PYPY']) <--- missing 106 netcons
@@ -825,17 +825,419 @@ netParams.connParams['PY->PY_AMPA'] = {
     'synMech': 'AMPA_S',
     'connList': [ [0,0] for x in range(1100) ] + [ [0,1] ] }
                              ^                       ^
-              none of these netcons are created  this netcon is created
+              NONE of these netcons are created  this netcon is created
 
 In [3]: PY = ncd['AMPA_S']['PYPY']
 
 In [4]: PY
 Out[4]: [[0, 1]] <--- only netcon that is created
 
+* 9.17.19 Chasing earlier depolarization part 1
+** netpyne model depolarizes faster than oc model, overlay voltages shows that after 1st dt, netpyne model has greater voltage, Bill points out likely parameter issue.
+** revised weight in code to exactly match Fspikewave.oc, may have been issue between: 0.018182 vs 0.2/11
+** simConfig.allowSelfConns = True should allow self conns but doesn't seem to
+
+* 9.18.19 Chasing earlier depolarization part 2
+** stripped out parameter declarations for TC cells, drug and wild type mutations, with them stripped out, the oc model now moves to firing earlier
+** TC voltages now identical, and rasters similar
+** commented in TC parameters and got change in voltage.
+
+In [8]: TCV[2000]
+Out[8]: -77.63921453237232
+
+In [1]: TCV[2000]
+Out[1]: -79.14505665452351
+
+** there is a difference in these two lines
+
+for i=0,nthalamiccells-1 { 
+  TC[i].soma.ghbar_iar = 17.5 * 10^-6 //rgh.repick() * 10^-6 //   
+  TC[i].kl.gmax = 40 * 10^-4   //rk1.repick() * 10^-4        //        
+  //print "TC(",i,") gh:",TC[i].soma.ghbar_iar," gmax:",TC[i].kl.gmax
+}
+
+-----vs NetPyne-----
+cellRule = netParams.importCellParams(label='TCrule', conds={'cellType': 'TC', 'cellModel': 'HH_TC'}, fileName='TC.tem', cellName='sTC')
+
+cellRule['secs']['soma']['vinit']=v_init
+cellRule['secs']['soma']['ghbar_iar']=17.5e-6
+cellRule['secs']['soma']['pointps']['kleak_0']['gmax']=40e-4
+netParams.cellParams['TCrule'] = cellRule
 
 
 
+In [21]: cellRule = netParams.importCellParams(label='TCrule', conds={'cellType': 'TC', 'cellModel': 'HH_TC'}, fileName='TC.tem', cellName='sTC')
+ 
+<< sTC: passive, Kleak, INa, IK, IT, Ih-CAM and Ca++ decay inserted >>
+ 
+
+In [22]: cellRule['secs']['soma']
+Out[22]: {geom: {L: 96.0, nseg: 1, diam: 96.0, Ra: 100.0, cm: 1.0}, topol: {}, mechs: {cad: {depth: 1.0, taur: 5.0, cainf: 0.00024, kt: 0.0, kd: 0.0}, iar: {ghbar: 2e-05, cac: 0.002, k2: 0.0004, Pc: 0.01, k4: 0.001, nca: 4.0, nexp: 1.0, ginc: 2.0, taum: 20.0, shift: 0.0}, inak2005: {gnatbar: 0.15, gkfbar: 0.06, gnablock: 1.0, mvhalf: 27.4, mk: 5.4043, hvhalf: 41.9, hk: 6.7, svhalf: 46.0, sk: 6.6, hshift: 0.0, sshift: 0.0, mtaubase: 0.15, htaubase: 23.12, htauvhalf: 77.58, htauk: 43.92, staubase: 140400.0, stauvhalf: 71.3, stauk: 30.9}, it: {gcabar: 0.002, shift: 2.0, taubase: 30.8}, pas: {g: 1e-05, e: -70.0}}, ions: {ca: {e: 120.0, i: 0.00024, o: 2.0}, h: {e: -40.0, i: 1.0, o: 1.0}, kf: {e: -100.0, i: 1.0, o: 1.0}, nat: {e: 50.0, i: 1.0, o: 1.0}}, pointps: {kleak_0: {mod: 'kleak', loc: 0.5, gmax: 0.004}}, _repr_mimebundle_: {}}
+
+In [26]: cellRule['secs']['soma']['mechs']['iar']['ghbar']     <=== proper way to get to ghbar
+Out[26]: 2e-05
+
+In [27]: cellRule['secs']['soma']['ghbar_iar']                 <=== not proper way to get to ghbar
+Out[27]: {_repr_mimebundle_: {}}
+
+** correctly set ghbar, now TC cells fire properly
+** looking for next issue
+** taking a look at spike times
+*** PY[50] first 5 are the same 6th is different
+In [16]: pyt = [spkt[x] for x in range(len(spkt)) if spkid[x] == 50]
+
+In [17]: pyt[0:5]
+Out[17]: 
+[240.8000000001205,
+ 242.2000000001208,
+ 249.10000000012238,
+ 249.90000000012256,
+ 250.80000000012276]
+
+In [20]: pyt[6]
+Out[20]: 255.90000000012392
+
+
+** ### Summary of what's changed since picking up port code ###
+GABAb synapses not implemented properly -- 200 GABAb instead of 3300 GABAb
+weights not correctly set and weight vs gmax issue
+TC randomization
+autapses were ignored
+
+* 9.19.19 what's the next difference
+** comparing voltages to look for differences
+** used pickle to dump voltage data and raster data to a separate directory with comparison 
+
+oc = {}
+pyv = {}
+inv = {}
+tcv = {}
+rev = {}
+
+pyv['bound'] = [x for x in h.PYVtrace[0] ]
+pyv['mid']   = [x for x in h.PYVtrace[49]]
+
+inv['bound'] = [x for x in h.INVtrace[0] ]
+inv['mid']   = [x for x in h.INVtrace[49]]
+
+tcv['bound'] = [x for x in h.TCVtrace[0] ]
+tcv['mid']   = [x for x in h.TCVtrace[49]]
+
+rev['bound'] = [x for x in h.REVtrace[0] ]
+rev['mid']   = [x for x in h.REVtrace[49]]
+
+oc['pyv'] = pyv
+oc['inv'] = inv
+oc['tcv'] = tcv
+oc['rev'] = rev
+
+oc['spkt'] = spkt
+oc['spkid'] = spkid
+
+with open('/home/jchen/CompNeuro/shared/oc.pkl', 'wb') as fp:
+    pickle.dump(oc, fp)
+
+find differences in voltage:
+
+In [14]: delta = [ [x , oc['pyv']['bound'][x] - np['pyv']['bound'][x] ] for x in range(2900) ]
+
+In [15]: delta = [ [x, y] for [x, y] in delta if y != 0 ]
+
+In [16]: delta[0]
+Out[16]: [2430, 2.1316282072803006e-14]
+
+===pyv===
+bound: [2430, 2.1316282072803006e-14] <=== earliest discrepancy in voltages occurs at 243
+mid: [2430, 7.105427357601002e-15]
+===inv===
+bound: [2575, -0.0047958884603289675]
+mid: [2591, 0.001413555973158509]
+===tcv===
+bound: [2575, -6.335476354735192e-05]
+mid: [2591, -0.0005352020553104353]
+===rev===
+bound: [2575, -0.007280047926386146]
+mid: [2591, -0.010982179722425656]
+
+So likely suspects...
+
+['AMPA_S']['PYPY']
+['AMPA_S']['TCPY']
+['GABAa_S']['INPY']
+
+Removed a lot of connections, remaining connections are
+
+AMPA TC->RE
+GABAa RE->RE
+GABAa RE->TC
+
+AMPA TC->PY
+
+So 
+
+TC starts
+
+TC->RE<->RE->TC
+
+TC->PY
+
+forced TC->PY weights to be the same and got same results
+
+In [2]: ncl = h.List('NetCon')
+
+In [7]: PYPOST = [x for x in ncl if x.postcell().tags['cellType'] == 'PY']
+
+In [8]: TCPY = [x for x in PYPOST if x.precell().tags['cellType'] == 'TC']
+
+In [9]: TCPY[0].weight[0]
+Out[9]: 0.05
+
+* 9.20.19 making rasters similar, looking for issues, found AMPA PY->PY culprit, netcons to single PP versus netcons to separate PP
+** reorganized synapse code in netParams to match Fspikewave
+** rasters look different when voltages are the same, looked like netpyne fired more frequently, changed these lines in oc
+PY[i].soma tobj = new NetCon(&v(0.5), nil) 
+to
+PY[i].soma tobj = new NetCon(&v(0.5), nil, 0, 1, 0)
+** seeing what else isn't working
+AMPA TC->RE
+GABAa RE->RE
+GABAa RE->TC
+AMPA TC->PY
+seems to be working
+
+So 
+
+TC starts
+TC->RE<->RE->TC
+TC->PY
+
+NOTE -- 230->260 is a good window to evaluate
+
+added in PY->PY
+
+AMPA TC->RE    -> working
+GABAa RE->RE   -> working
+GABAa RE->TC   -> working
+AMPA TC->PY    -> working
+AMPA PY->PY    -> ?
+
+result:
+===pyv===
+bound: [2430, 2.1316282072803006e-14]
+mid: [2430, 7.105427357601002e-15]
+===inv===
+===tcv===
+===rev===
+
+so PY->PY not implemented correctly in netpyne version
+
+weights are the same and postsynapse conns are the same
+
+*** oc analysis
+In [1]: cvode = h.CVode()
+
+In [2]: PYPY0 = cvode.netconlist("PY", h.sPY[0], "AMPA")
+
+In [4]: PYPY50 = cvode.netconlist("PY", h.sPY[50], "AMPA")
+
+In [7]: [x.precell() for x in PYPY0]
+Out[7]: [sPY[1], sPY[1], sPY[2], sPY[2], sPY[3], sPY[3], sPY[4], sPY[4], sPY[5]]
+
+In [8]: [x.precell() for x in PYPY50]
+Out[8]: 
+[sPY[45],
+ sPY[46],
+ sPY[47],
+ sPY[48],
+ sPY[49],
+ sPY[51],
+ sPY[52],
+ sPY[53],
+ sPY[54],
+ sPY[55]]
+
+In [9]: PYPY50[0].weight[0]
+Out[9]: 0.05454545454545454
+
+*** netpyne analysis
+
+In [7]: [x for x in ncd['AMPA_S']['PYPY'] if x[2] == 0]
+Out[7]: [[1, 0], [1, 0], [2, 0], [2, 0], [3, 0], [3, 0], [4, 0], [4, 0], [5, 0]]
+
+In [8]: [x for x in ncd['AMPA_S']['PYPY'] if x[2] == 50]
+Out[8]: 
+[[45, 50],
+ [46, 50],
+ [47, 50],
+ [48, 50],
+ [49, 50],
+ [51, 50],
+ [52, 50],
+ [53, 50],
+ [54, 50],
+ [55, 50]]
+
+AMPA TC->RE    -> working
+GABAa RE->RE   -> working
+GABAa RE->TC   -> working
+AMPA TC->PY    -> working
+AMPA PY->PY    -> broken
+AMPA PY->IN    -> working
+GABAa IN->PY   -> working
+GABAa IN->IN   -> working
+AMPA PY->RE    -> working
+AMPA PY->TC    -> working
+AMPA TC->PY    -> working
+
+** AMPA PY->PY fixed when given its own separate point process.
+see discussion about ampapostPY and ampapostTC earlier, issue was that these netcons were sharing same point process
+differences resolved when AMPA PY->PY given its own PP to connect to.
+
+* 9.23.19 implementing RETC GABAB
+** RETC GABAB implementation
+(python3) jchen@jchen-ThinkPad-11e-3rd-Gen:~/CompNeuro/shared$ ipython -i compare.py
+Python 3.7.3 (default, Mar 27 2019, 22:11:17) 
+Type 'copyright', 'credits' or 'license' for more information
+IPython 6.5.0 -- An enhanced Interactive Python. Type '?' for help.
+===pyv===
+===inv===
+===tcv===
+bound: [2459, 7.105427357601002e-15] <=== earliest difference caused by implementing RETC gabab
+mid: [2459, 7.105427357601002e-15]
+===rev===
+
+** isolate change to one GABAb
+
+oc code
+gababsyn = new GABAb_S()
+TC[0].soma gababsyn.loc(0.5)
+TC[0].gababpost.append(gababsyn)
+RE[0].soma TC[0].REgabablist.append(new NetCon(&v(0.5), gababsyn, 0, axondelay, 1))
+
+np code
+gababsyn = h.GABAb_S()
+gababsyn.loc(0.5, sec = TCsomas[0])
+gababsyn.gmax = 0.04 / 11
+ncon = h.NetCon( REsomas[0](0.5)._ref_v, gababsyn, 0, 2, 1, sec = REsomas[0])
+
+(python3) jchen@jchen-ThinkPad-11e-3rd-Gen:~/CompNeuro/shared$ ipython -i compare.py
+Python 3.7.3 (default, Mar 27 2019, 22:11:17) 
+Type 'copyright', 'credits' or 'license' for more information
+IPython 6.5.0 -- An enhanced Interactive Python. Type '?' for help.
+===pyv===
+===inv===
+===tcv===
+bound: [2464, 7.105427357601002e-15] <=== difference due to one netcon
+===rev===
+
+In [7]: h.psection(TCsomas[0])
+compartCell_PY_HH_PY_0.soma { nseg=1  L=96  Ra=100
+	/*location 0 attached to cell 0*/
+	/* First segment only */
+	insert morphology { diam=96}
+	insert capacitance { cm=1}
+	insert im { gkbar_im=3e-05 taumax_im=1000}
+	insert k_ion { ek=-77}
+	insert inak2005 { gnatbar_inak2005=0.3 gkfbar_inak2005=0.03 gnablock_inak2005=1 mvhalf_inak2005=27.4 mk_inak2005=5.4043 hvhalf_inak2005=41.9 hk_inak2005=6.7 svhalf_inak2005=46 sk_inak2005=6.6 hshift_inak2005=0 sshift_inak2005=0 mtaubase_inak2005=0.15 htaubase_inak2005=23.12 htauvhalf_inak2005=77.58 htauk_inak2005=43.92 staubase_inak2005=140400 stauvhalf_inak2005=71.3 stauk_inak2005=30.9}
+	insert nat_ion { enat=50}
+	insert kf_ion { ekf=-100}
+	insert pas { g_pas=0.0001 e_pas=-70}
+	insert AMPA_S { Cmax=0.5 Cdur=0.3 Alpha=0.94 Beta=0.18 Erev=0 gmax=0}
+	insert GABAa_S { Cmax=0.5 Cdur=0.3 Alpha=20 Beta=0.162 Erev=-85 gmax=0}
+	insert AMPA_S { Cmax=0.5 Cdur=0.3 Alpha=0.94 Beta=0.18 Erev=0 gmax=0}
+}
+--> where is GABAb?
+** found issue was gmax wasn't set properly.
+** now everything running same, will add in channel mutations and drug types
+** channel mutations and drug types added without issue.
+
+** new task to implement GABAb connections in netpyne.
+Best workaround so far:
+declare 11 or 22 GABAb synmechs to and create new appropriate connLists  
+
+*** conversation on slack
+billl 1:54 PM
+@jchen.6727 @salvadord -- salva, offhand any method for handling synmechs that need to be 1:1 with netcons rather and don't allow multiple netcons to project in to one?
+salvadord:speech_balloon: 1:55 PM
+hmm that’s kind of the default in netpyne, unless targeting same segment specifically
+so netpyne will create try to spread conns across segments, and creae separate syns for each
+jchen.6727 1:58 PM
+they are targetting same segment, 1 segment will have 11 or 22 GABAb synapse point processes
+billl 1:58 PM
+so one hack would be to make multiple segments just to make this work
+though would be nice if was an option -- let's take a look at code and see how hard
+salvadord:speech_balloon: 1:59 PM
+y all implemented assuming won’t have >1 synMech of same type at same segment
+so could be tricky to adapt code
+a trick could be to create different synMechs (different labels) but with same params
+or as you say diff segments
+billl 2:01 PM
+ok so let's start with hack -- either diff labels or diff segs
+can do in a loop by generating labels of the form gabab%d
+lab meeting starting
+now
+jchen.6727 3:43 PM
+Sorry still some questions,
+so in terms of making different labels  work,
+once we generate 11 or 22 synMechs, we would then have to create 11 or 22 connectivity rules corresponding to the number of synMechs, right?
+Otherwise I think I have a clear picture of how I can make the diff labels hack work, though the code at the end won't look tidy
+in terms of seg I can add segments by changing the nseg value right? but I can't find a place in the connectivity rules where I can specify a target segment,
+unless segment == section
+jchen.6727 3:53 PM
+in which case the resulting code at the end would be cleaner because it looks like the sec argument would create the 11 or 22 synaptic PP for me
+Untitled 
+sec (optional) - Name of target section on the postsynaptic neuron (e.g. 'soma').
+If omitted, defaults to ‘soma’ if exists, otherwise to first section in the cell sections list.
+If synsPerConn > 1, and a list of sections or sectionList is specified, synapses will be distributed uniformly along the specified section(s), taking into account the length of each section.
 
 
 
+salvadord:speech_balloon: 3:53 PM
+you can list multiple synMechs in the same conn rule
+re: different segments they should be distributed uniformly across segments by default
+jchen.6727 3:55 PM
+the synMech argument? I think I might have misinterpreted something there, I thought that would create multiple types of synaptic PP per one connection
+billl 3:59 PM
+better idea not to create multiple segs since that will slow down whole sim unnecessarily
+multiple types -- in this case all are of same type but just using this as a hack to get multiple in
+jchen.6727 3:59 PM
+multiple segs it would also mean I couldn't get exact same output voltages as oc model anymore either right?
+billl 4:00 PM
+this is a pretty common situation salva -- maybe we should build this hack into netpyne so not visible ot user?
+not exact same -- also true
+did you find where this code is james?
+jchen.6727 4:02 PM
+I haven't searched for it yet, I'll start looking through my netpyne directory
+billl 4:03 PM
+think woiuld be in sim/setup.py
+salvadord:speech_balloon: 4:04 PM
+cell/compartCell.py or network/conn.py
+billl 4:04 PM
+ah thanks
+sim will be runtime stuff
+salvadord:speech_balloon: 4:05 PM
+but isn’t this just an inefficient way of implementing it? unless needed to reproduce a model, thought should be same
+ie. if use single syn with multiple netcons vs copies of same syn each with 1 netcon?
+guess not since dynamics might differ…
+billl 4:06 PM
+generally difficult to do the summation trick -- requires having the particular type of DMS syn mech from my paper -- guess other parameterizations could do too but most cannot
+salvadord:speech_balloon: 4:06 PM
+depending on mod file might not be same …. right
+billl 4:07 PM
+the generic mod file won't work -- only works if have a bulk state var that can augment: NET_RECEIVE(weight (uS)) {
+    A = A + weight*factor
+    B = B + weight*factor
+my paper on this -- https://paperpile.com/shared/77qZXF
+alternative would be to fake it internally by keeping arrays of everything so that one mod file could incorporate multiples but then need a whole extra management for that
+generally any complicated markov model of a syn will not lend itself to adding across syns like this
+
+** Will try out netpyne branch multiple_syns
+** journal club on avalanches
+self organized criticality
+avalanche -- where perturbation causes avalanches of size and duration
+state where perturbation causes avalanches of all sizes and durations
+
+** implemented channel mutations and drugs
+
+* 9.24.19
 
