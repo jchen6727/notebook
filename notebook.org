@@ -1239,5 +1239,115 @@ state where perturbation causes avalanches of all sizes and durations
 
 ** implemented channel mutations and drugs
 
-* 9.24.19
+* 9.24.19 Changes to netpyne
 
+** how to switch between different branches of netpyne:
+
+git clone https://github.com/Neurosim-lab/netpyne.git
+cd netpyne
+git checkout development
+pip install -e .
+
+** checksynMech
+
+a function of CompartCell class
+def addSynMech (self, synLabel, secLabel, loc):
+line 560 - 580 of netpyne/cell/compartCell.py
+        if synMechParams and sec:  # if both the synMech and the section exist
+            if sim.cfg.createPyStruct and sim.cfg.addSynMechs:
+-----           synMech = next((synMech for synMech in sec['synMechs'] if synMech['label']==synLabel and synMech['loc']==loc), None)
+-----           if not synMech:  # if synMech not in section, then create
+-----               synMech = Dict({'label': synLabel, 'loc': loc})
+-----               for paramName, paramValue in synMechParams.items():
+-----                   synMech[paramName] = paramValue
+-----               sec['synMechs'].append(synMech)
++++++           #synMech = next((synMech for synMech in sec['synMechs'] if synMech['label']==synLabel and synMech['loc']==loc), None)
++++++           #if not synMech:  # if synMech not in section, then create
++++++           synMech = None
++++++           synMech = Dict({'label': synLabel, 'loc': loc})
++++++           for paramName, paramValue in synMechParams.items():
++++++               synMech[paramName] = paramValue
++++++           sec['synMechs'].append(synMech)
+            else:
+                synMech = None
+
+            if sim.cfg.createNEURONObj and sim.cfg.addSynMechs: 
+                # add synaptic mechanism NEURON objectes 
+-----           if not synMech:  # if pointer not created in createPyStruct, then check 
+-----               synMech = next((synMech for synMech in sec['synMechs'] if synMech['label']==synLabel and synMech['loc']==loc), None)
++++++           #if not synMech:  # if pointer not created in createPyStruct, then check 
++++++           #    synMech = next((synMech for synMech in sec['synMechs'] if synMech['label']==synLabel and synMech['loc']==loc), None)
++++++           synMech = None
+                if not synMech:  # if still doesnt exist, then create
+                    synMech = Dict()
+                    sec['synMechs'].append(synMech)
+
+In revision code basically appends synMech even if they already exist on segment which old code checks for
+this creates a new synaptic PP for every connection
+Useful for GABAb where this is needed but unecessary for other synaptic types and blows up simulation time and prevents exactness between models
+Where we have discussed before where 2 synaptic PPs are not the same as 1 PP even for linear kinetics because of very samll discrepancies in results
+
+generally any complicated markov model of a syn will not lend itself to adding across syns like this
+
+** adding option for individual synapses
+** here's the sequence of calls that make a conn and synapse
+~/CompNeuro/myKnoxRepo/init.py in <module>()
+     15 ###############################################################################
+     16 
+---> 17 (pops, cells, conns, rxd, stims, simData) = sim.create(netParams.netParams, cfg.simConfig, output=True)
+     18 
+     19 ###############################################################################
+
+~/CompNeuro/dev/netpyne/netpyne/sim/wrappers.py in create(netParams, simConfig, output)
+     27     pops = sim.net.createPops()                  # instantiate network populations
+     28     cells = sim.net.createCells()                 # instantiate network cells based on defined populations
+---> 29     conns = sim.net.connectCells()                # create connections between cells based on params
+     30     stims = sim.net.addStims()                    # add external stimulation to cells (IClamps etc)
+     31     rxd = sim.net.addRxD()                    # add reaction-diffusion (RxD)
+
+~/CompNeuro/dev/netpyne/netpyne/network/conn.py in connectCells(self)
+     76                                 sim.cfg.seeds['conn'])
+     77             self._connStrToFunc(preCellsTags, postCellsTags, connParam)  # convert strings to functions (for the delay, and probability params)
+---> 78             connFunc(preCellsTags, postCellsTags, connParam)  # call specific conn function
+     79 
+     80         # check if gap junctions in any of the conn rules
+
+~/CompNeuro/dev/netpyne/netpyne/network/conn.py in fromListConn(self, preCellsTags, postCellsTags, connParam)
+    547 
+    548             if preCellGid != postCellGid: # if not self-connection
+--> 549                 self._addCellConn(connParam, preCellGid, postCellGid) # add connection
+    550 
+    551 
+
+~/CompNeuro/dev/netpyne/netpyne/network/conn.py in _addCellConn(self, connParam, preCellGid, postCellGid)
+    611         if sim.cfg.includeParamsLabel: params['label'] = connParam.get('label')
+    612 
+--> 613         postCell.addConn(params=params)
+    614 
+    615 
+
+~/CompNeuro/dev/netpyne/netpyne/cell/compartCell.py in addConn(self, params, netStimParams)
+    692         # Add synaptic mechanisms
+    693         if not pointp: # check not a point process
+--> 694             synMechs, synMechSecs, synMechLocs = self._setConnSynMechs(params, secLabels)
+    695             if synMechs == -1: return
+    696 
+
+~/CompNeuro/dev/netpyne/netpyne/cell/compartCell.py in _setConnSynMechs(self, params, secLabels)
+   1192 
+   1193         # add synaptic mechanism to section based on synMechSecs and synMechLocs (if already exists won't be added)
+-> 1194         synMechs = [self.addSynMech(synLabel=params['synMech'], secLabel=synMechSecs[i], loc=synMechLocs[i]) for i in range(synsPerConn)]
+   1195 
+   1196         return synMechs, synMechSecs, synMechLocs
+
+~/CompNeuro/dev/netpyne/netpyne/cell/compartCell.py in addSynMech(self, synLabel, secLabel, loc)
+    584                     for synParamName,synParamValue in synMechParams.items():  # add params of the synaptic mechanism
+    585                         if synParamName not in ['label', 'mod', 'selfNetCon', 'loc']:
+--> 586                             setattr(synMech['hObj'], synParamName, synParamValue)
+    587                         elif synParamName == 'selfNetcon':  # create self netcon required for some synapses (eg. homeostatic)
+    588                             secLabelNetCon = synParamValue.get('sec', 'soma')
+
+So line 1194 is key because we still have a way to access the params
+
+line 552 changed declaration:
+    def addSynMech (self, synLabel, secLabel, loc, nonLinear = False):
